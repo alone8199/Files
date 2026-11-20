@@ -58,7 +58,7 @@ jobs:
     - name: Build launcher
       shell: pwsh
       run: |
-        msbuild "$env:LAUNCHER_PROJECT_PATH" -t:Build -p:Platform=$env:PLATFORM -p:Configuration=$env:CONFIGURATION -v:minimal
+        msbuild "$env:LAUNCHER_PROJECT_PATH" -t:Build -p:Platform=$env:PLATFORM -p:Configuration=$env:CONFIGURATION -p:PlatformToolset=v143 -v:minimal
 
     - name: Build & package Files (sideload, signed)
       shell: pwsh
