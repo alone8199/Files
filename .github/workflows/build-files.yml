@@ -28,10 +28,10 @@ jobs:
         repository: files-community/Files
         ref: v4.3
 
-    - name: Pin .NET SDK to 10.0.102
+    - name: Pin .NET SDK to 11.0.100 (Roslyn 5.9)
       shell: pwsh
       run: |
-        $json = @{ sdk = @{ version = "10.0.102"; rollForward = "latestPatch" }; test = @{ runner = "Microsoft.Testing.Platform" } }
+        $json = @{ sdk = @{ version = "11.0.100"; rollForward = "latestPatch" }; test = @{ runner = "Microsoft.Testing.Platform" } }
         $json | ConvertTo-Json -Depth 4 | Set-Content -Path "global.json" -Encoding utf8
         Get-Content global.json
 
@@ -46,10 +46,16 @@ jobs:
       with:
         global-json-file: global.json
 
+    - name: Show toolchain versions
+      shell: pwsh
+      run: |
+        dotnet --version
+        dotnet --list-sdks
+
     - name: Restore solution
       shell: pwsh
       run: |
-        msbuild $env:SOLUTION_NAME -t:Restore -p:Platform=$env:PLATFORM -p:Configuration=$env:CONFIGURATION -v:minimal
+        dotnet restore $env:SOLUTION_NAME -p:Platform=$env:PLATFORM
 
     - name: Generate self-signed certificate
       shell: pwsh
@@ -71,9 +77,8 @@ jobs:
       shell: pwsh
       run: |
         New-Item -ItemType Directory -Force -Path "$env:APPX_PACKAGE_DIR" | Out-Null
-        msbuild "$env:APP_PROJECT_PATH" `
-          -t:Build `
-          -p:Configuration=$env:CONFIGURATION `
+        dotnet build "$env:APP_PROJECT_PATH" `
+          -c $env:CONFIGURATION `
           -p:Platform=$env:PLATFORM `
           -p:AppxBundle=Never `
           -p:GenerateAppxPackageOnBuild=true `
