@@ -25,6 +25,7 @@ jobs:
     - name: Checkout v4.3 source
       uses: actions/checkout@v4
       with:
+        repository: files-community/Files
         ref: v4.3
 
     - name: Setup MSBuild
