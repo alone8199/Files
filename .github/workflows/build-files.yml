@@ -1,0 +1,94 @@
+name: Build Files (v4.3) Sideload
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-files.yml'
+  workflow_dispatch:
+
+env:
+  WORKING_DIR: ${{ github.workspace }}
+  SOLUTION_NAME: 'Files.slnx'
+  CONFIGURATION: 'Release'
+  PLATFORM: 'x64'
+  APP_PROJECT_PATH: 'src\Files.App\Files.App.csproj'
+  LAUNCHER_PROJECT_PATH: 'src\Files.App.Launcher\Files.App.Launcher.vcxproj'
+  ARTIFACTS_STAGING_DIR: '${{ github.workspace }}\artifacts'
+  APPX_PACKAGE_DIR: '${{ github.workspace }}\artifacts\AppxPackages\'
+  CERT_PATH: '${{ github.workspace }}\.github\workflows\FilesApp_SelfSigned.pfx'
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+    - name: Checkout v4.3 source
+      uses: actions/checkout@v4
+      with:
+        ref: v4.3
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Setup NuGet
+      uses: NuGet/setup-nuget@v2
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        global-json-file: global.json
+
+    - name: Restore solution
+      shell: pwsh
+      run: |
+        msbuild $env:SOLUTION_NAME -t:Restore -p:Platform=$env:PLATFORM -p:Configuration=$env:CONFIGURATION -v:minimal
+
+    - name: Generate self-signed certificate
+      shell: pwsh
+      run: |
+        . '.\.github\scripts\Generate-SelfCertPfx.ps1' -Destination "$env:CERT_PATH"
+        Write-Host "Cert generated at $env:CERT_PATH"
+
+    - name: Restore NuGet for launcher
+      shell: pwsh
+      run: |
+        nuget restore "$env:LAUNCHER_PROJECT_PATH" -SolutionDirectory "$env:WORKING_DIR" -Verbosity minimal
+
+    - name: Build launcher
+      shell: pwsh
+      run: |
+        msbuild "$env:LAUNCHER_PROJECT_PATH" -t:Build -p:Platform=$env:PLATFORM -p:Configuration=$env:CONFIGURATION -v:minimal
+
+    - name: Build & package Files (sideload, signed)
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path "$env:APPX_PACKAGE_DIR" | Out-Null
+        msbuild "$env:APP_PROJECT_PATH" `
+          -t:Build `
+          -p:Configuration=$env:CONFIGURATION `
+          -p:Platform=$env:PLATFORM `
+          -p:AppxBundle=Never `
+          -p:GenerateAppxPackageOnBuild=true `
+          -p:UapAppxPackageBuildMode=Sideload `
+          -p:AppxPackageDir="$env:APPX_PACKAGE_DIR" `
+          -p:AppxPackageSigningEnabled=true `
+          -p:PackageCertificateKeyFile="$env:CERT_PATH" `
+          -p:PackageCertificatePassword="" `
+          -p:PackageCertificateThumbprint="" `
+          -v:minimal
+
+    - name: Stage artifacts
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path "$env:ARTIFACTS_STAGING_DIR\packages" | Out-Null
+        Get-ChildItem "$env:APPX_PACKAGE_DIR" -Recurse -Include *.msix,*.msixbundle,*.appx | Copy-Item -Destination "$env:ARTIFACTS_STAGING_DIR\packages" -Force
+        Copy-Item "$env:CERT_PATH" "$env:ARTIFACTS_STAGING_DIR\FilesApp_SelfSigned.pfx" -Force
+        Write-Host "=== staged files ==="
+        Get-ChildItem "$env:ARTIFACTS_STAGING_DIR" -Recurse | ForEach-Object { Write-Host $_.FullName }
+
+    - name: Upload package artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Files-4.3-sideload-x64
+        path: ${{ env.ARTIFACTS_STAGING_DIR }}\*
+        if-no-files-found: error
