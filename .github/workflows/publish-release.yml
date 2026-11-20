@@ -1,0 +1,54 @@
+name: Publish Files build to Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Source Actions run id containing the artifact'
+        required: true
+        default: '44730718264'
+      tag:
+        description: 'Release tag to create'
+        required: true
+        default: 'v4.3-selfbuilt'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download build artifact from source run (internal)
+      uses: actions/download-artifact@v4
+      with:
+        name: Files-4.3-sideload-x64
+        run-id: ${{ inputs.run_id }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        path: artifact
+
+    - name: Inspect artifact
+      run: |
+        echo "=== files ==="
+        find artifact -type f -printf '%p %s bytes\n'
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release
+        find artifact -type f \( -iname '*.msixbundle' -o -iname '*.msix' \) ! -path '*Dependencies*' -exec cp {} release/ \;
+        find artifact -type f -iname '*.pfx' -exec cp {} release/ \;
+        echo "=== release assets ==="
+        ls -lh release
+
+    - name: Create release and upload assets
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ inputs.tag }}
+        name: 'Files v4.3 self-built (sideload x64)'
+        body: |
+          Self-built from source v4.3 via GitHub Actions on windows-2022 runner.
+          Signed with a self-signed certificate (FilesApp_SelfSigned.pfx included).
+          To install: trust the certificate in LocalMachine\Root, then double-click the msixbundle.
+        files: release/*
+        generate_release_notes: false
