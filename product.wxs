@@ -19,17 +19,21 @@
       <ComponentRef Id="StartMenuShortcut" />
       <ComponentRef Id="DesktopShortcut" />
     </Feature>
+  </Package>
 
-    <Fragment>
-      <Component Id="StartMenuShortcut" Directory="ApplicationProgramsFolder" Guid="A1B2C3D4-1111-4E9A-9C11-6D2E4F8A0B33">
+  <Fragment>
+    <DirectoryRef Id="ApplicationProgramsFolder">
+      <Component Id="StartMenuShortcut" Guid="A1B2C3D4-1111-4E9A-9C11-6D2E4F8A0B33">
         <Shortcut Id="FilesStartMenu" Name="Files" Target="[INSTALLFOLDER]Files.exe" WorkingDirectory="INSTALLFOLDER" />
         <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
         <RegistryValue Root="HKCU" Key="Software\FilesCommunity\Files" Name="startmenu" Type="integer" Value="1" KeyPath="yes" />
       </Component>
-      <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="A1B2C3D4-2222-4E9A-9C11-6D2E4F8A0B33">
+    </DirectoryRef>
+    <DirectoryRef Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="A1B2C3D4-2222-4E9A-9C11-6D2E4F8A0B33">
         <Shortcut Id="FilesDesktop" Name="Files" Target="[INSTALLFOLDER]Files.exe" WorkingDirectory="INSTALLFOLDER" />
         <RegistryValue Root="HKCU" Key="Software\FilesCommunity\Files" Name="desktop" Type="integer" Value="1" KeyPath="yes" />
       </Component>
-    </Fragment>
-  </Package>
+    </DirectoryRef>
+  </Fragment>
 </Wix>
