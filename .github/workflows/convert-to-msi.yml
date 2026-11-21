@@ -1,0 +1,149 @@
+name: Convert Files MSIX build to MSI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  convert:
+    runs-on: windows-2022
+    env:
+      SRC_RUN: '44730718264'
+      OUT_DIR: '${{ github.workspace }}\msiout'
+      UNPK_DIR: '${{ github.workspace }}\unpacked'
+      MSI_NAME: 'Files-4.3.0.0-x64.msi'
+
+    steps:
+    - name: Download build artifact (internal)
+      uses: actions/download-artifact@v4
+      with:
+        name: Files-4.3-sideload-x64
+        run-id: ${{ env.SRC_RUN }}
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        path: artifact
+
+    - name: Inspect artifact
+      shell: pwsh
+      run: |
+        Get-ChildItem "$env:GITHUB_WORKSPACE\artifact" -Recurse -File | ForEach-Object { Write-Host "$($_.FullName) [$($_.Length)]" }
+
+    - name: Locate MSIX and unpack payload with MakeAppx
+      shell: pwsh
+      run: |
+        $msix = Get-ChildItem "$env:GITHUB_WORKSPACE\artifact" -Recurse -Filter "Files.App_*.msix" | Where-Object { $_.FullName -notmatch 'Dependencies' } | Select-Object -First 1
+        if (-not $msix) { throw "Main MSIX not found" }
+        Write-Host "Using MSIX: $($msix.FullName)"
+        New-Item -ItemType Directory -Force -Path "$env:UNPK_DIR" | Out-Null
+        # MakeAppx ships with Windows SDK; locate it
+        $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\makeappx.exe" -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
+        if (-not $makeappx) { $makeappx = Get-ChildItem "C:\Program Files\Windows Kits\10\bin\*\x64\makeappx.exe" -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1 }
+        if (-not $makeappx) { throw "makeappx.exe not found" }
+        Write-Host "MakeAppx: $($makeappx.FullName)"
+        & $makeappx.FullName unpack /p "$($msix.FullName)" /d "$env:UNPK_DIR"
+        if ($LASTEXITCODE -ne 0) { throw "MakeAppx unpack failed" }
+        Write-Host "=== unpacked top level ==="
+        Get-ChildItem "$env:UNPK_DIR" | ForEach-Object { Write-Host $_.Name }
+
+    - name: Install WiX Toolset
+      shell: pwsh
+      run: |
+        dotnet tool install --global wix
+        wix --version
+
+    - name: Harvest files into WiX authoring
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path "$env:OUT_DIR" | Out-Null
+        wix extension add WixToolset.Util.wixext
+        $harvest = "$env:OUT_DIR\harvest.wxs"
+        wix heat dir "$env:UNPK_DIR" -cg AppFiles -dr INSTALLFOLDER -gg -scom -sfrag -sreg -suid -out "$harvest"
+        if ($LASTEXITCODE -ne 0) { throw "heat failed" }
+        Write-Host "Harvested: $harvest"
+
+    - name: Write WiX product source
+      shell: pwsh
+      run: |
+        $wxs = @'
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="Files" Manufacturer="Files Community (self-built)" Version="4.3.0" UpgradeCode="8F3C2A10-5B7D-4E9A-9C11-6D2E4F8A0B33" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Files is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Files" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Files" />
+      </Directory>
+      <Directory Id="DesktopFolder" />
+    </Directory>
+
+    <Feature Id="Main" Title="Files" Level="1" ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+      <ComponentRef Id="RunAppRuntimeInstaller" />
+    </Feature>
+
+    <Fragment>
+      <Component Id="StartMenuShortcut" Directory="ApplicationProgramsFolder" Guid="A1B2C3D4-1111-4E9A-9C11-6D2E4F8A0B33">
+        <Shortcut Id="FilesStartMenu" Name="Files" Target="[INSTALLFOLDER]Files.App.exe" WorkingDirectory="INSTALLFOLDER" Icon="FilesIcon" />
+        <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\FilesCommunity\Files" Name="startmenu" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+      <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="A1B2C3D4-2222-4E9A-9C11-6D2E4F8A0B33">
+        <Shortcut Id="FilesDesktop" Name="Files" Target="[INSTALLFOLDER]Files.App.exe" WorkingDirectory="INSTALLFOLDER" Icon="FilesIcon" />
+        <RegistryValue Root="HKCU" Key="Software\FilesCommunity\Files" Name="desktop" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+      <Icon Id="FilesIcon" SourceFile="unpacked\Files.App\Assets\AppTiles\Release\StoreLogo.scale-100.png" />
+    </Fragment>
+
+    <Fragment>
+      <DirectoryRef Id="TARGETDIR">
+        <Component Id="RunAppRuntimeInstaller" Guid="A1B2C3D4-3333-4E9A-9C11-6D2E4F8A0B33">
+          <Condition>NOT Installed</Condition>
+          <util:RunFile Id="InstallWindowsAppRuntime" File="[INSTALLFOLDER]Dependencies\x64\Microsoft.WindowsAppRuntime.2.msix" />
+        </Component>
+      </DirectoryRef>
+    </Fragment>
+
+    <UI>
+      <UIRef Id="WixUI_InstallDir" />
+    </UI>
+  </Package>
+</Wix>
+'@
+        $wxs | Set-Content -Path "$env:OUT_DIR\product.wxs" -Encoding utf8
+
+        # Copy the WindowsAppRuntime dependency into the payload tree
+        $runtime = Get-ChildItem "$env:GITHUB_WORKSPACE\artifact" -Recurse -Filter "Microsoft.WindowsAppRuntime.2.msix" | Select-Object -First 1
+        if ($runtime) {
+          $dest = "$env:UNPK_DIR\Dependencies\x64"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item $runtime.FullName "$dest\Microsoft.WindowsAppRuntime.2.msix" -Force
+          Write-Host "Copied runtime dependency into payload"
+        } else {
+          Write-Host "WARNING: runtime dependency not found in artifact"
+        }
+        # Re-harvest after adding runtime so it is included
+        wix heat dir "$env:UNPK_DIR" -cg AppFiles -dr INSTALLFOLDER -gg -scom -sfrag -sreg -suid -out "$env:OUT_DIR\harvest.wxs"
+
+    - name: Build MSI
+      shell: pwsh
+      run: |
+        wix build "$env:OUT_DIR\product.wxs" "$env:OUT_DIR\harvest.wxs" -ext WixToolset.Util.wixext -out "$env:OUT_DIR\$env:MSI_NAME"
+        if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
+        Get-ChildItem "$env:OUT_DIR" -Filter *.msi | ForEach-Object { Write-Host "MSI: $($_.FullName) [$($_.Length)]" }
+
+    - name: Upload MSI artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Files-MSI-x64
+        path: ${{ env.OUT_DIR }}\*
+        if-no-files-found: error
