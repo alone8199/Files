@@ -4,15 +4,13 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of Files is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="ProgramFiles64Folder">
-        <Directory Id="INSTALLFOLDER" Name="Files" />
-      </Directory>
-      <Directory Id="ProgramMenuFolder">
-        <Directory Id="ApplicationProgramsFolder" Name="Files" />
-      </Directory>
-      <Directory Id="DesktopFolder" />
-    </Directory>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Files" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Files" />
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
 
     <Feature Id="Main" Title="Files" Level="1" ConfigurableDirectory="INSTALLFOLDER">
       <ComponentGroupRef Id="AppFiles" />
