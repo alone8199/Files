@@ -50,20 +50,19 @@ jobs:
         dotnet tool install --global wix --version 5.0.2
         wix --version
 
-    - name: Harvest files into WiX authoring
+    - name: Generate WiX file list
       shell: pwsh
       run: |
         New-Item -ItemType Directory -Force -Path "$env:OUT_DIR" | Out-Null
-        wix extension add WixToolset.UI.wixext
-        wix heat dir "$env:UNPK_DIR" -cg AppFiles -dr INSTALLFOLDER -gg -scom -sfrag -sreg -out "$env:OUT_DIR\harvest.wxs"
-        if ($LASTEXITCODE -ne 0) { throw "heat failed" }
+        & "$env:GITHUB_WORKSPACE\gen-harvest.ps1" -SourceDir "$env:UNPK_DIR" -OutputFile "$env:OUT_DIR\harvest.wxs"
+        if ($LASTEXITCODE -ne 0) { throw "harvest generation failed" }
         Copy-Item "$env:GITHUB_WORKSPACE\product.wxs" "$env:OUT_DIR\product.wxs" -Force
         Write-Host "product.wxs + harvest.wxs ready"
 
     - name: Build MSI
       shell: pwsh
       run: |
-        wix build "$env:OUT_DIR\product.wxs" "$env:OUT_DIR\harvest.wxs" -ext WixToolset.UI.wixext -out "$env:OUT_DIR\$env:MSI_NAME"
+        wix build "$env:OUT_DIR\product.wxs" "$env:OUT_DIR\harvest.wxs" -out "$env:OUT_DIR\$env:MSI_NAME"
         if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
         Get-ChildItem "$env:OUT_DIR" -Filter *.msi | ForEach-Object { Write-Host "MSI: $($_.FullName) [$($_.Length)]" }
 
