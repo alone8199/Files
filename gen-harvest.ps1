@@ -8,15 +8,16 @@ $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine('<?xml version="1.0" encoding="utf-8"?>')
 [void]$sb.AppendLine('<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">')
 [void]$sb.AppendLine('  <Fragment>')
-[void]$sb.AppendLine('    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">')
+[void]$sb.AppendLine('    <DirectoryRef Id="INSTALLFOLDER">')
 $script:cid = 0
 $script:fid = 0
 $script:did = 0
+$script:refs = New-Object System.Collections.Generic.List[string]
 
 function Esc([string]$s) { return [System.Security.SecurityElement]::Escape($s) }
 
-function Write-Dir([string]$dirPath, [string]$parentRef, [int]$level) {
-    $indent = ' ' * (8 + $level * 2)
+function Write-Dir([string]$dirPath, [int]$level) {
+    $indent = ' ' * (6 + $level * 2)
     $files = @(Get-ChildItem -LiteralPath $dirPath -File -Force -ErrorAction SilentlyContinue)
     $subdirs = @(Get-ChildItem -LiteralPath $dirPath -Directory -Force -ErrorAction SilentlyContinue)
     foreach ($f in $files) {
@@ -25,21 +26,25 @@ function Write-Dir([string]$dirPath, [string]$parentRef, [int]$level) {
         $cmpId = "Cmp$($script:cid)"
         $filId = "Fil$($script:fid)"
         $src = Esc $f.FullName
-        [void]$sb.AppendLine("$indent<Component Id=`"$cmpId`" Guid=`"*`" Directory=`"$parentRef`">")
-        [void]$sb.AppendLine("$indent  <File Id=`"$filId`" KeyPath=`"yes`" Source=`"$src`" />")
-        [void]$sb.AppendLine("$indent</Component>")
+        [void]$sb.AppendLine("$indent  <Component Id=`"$cmpId`" Guid=`"*`">")
+        [void]$sb.AppendLine("$indent    <File Id=`"$filId`" KeyPath=`"yes`" Source=`"$src`" />")
+        [void]$sb.AppendLine("$indent  </Component>")
+        $script:refs.Add($cmpId)
     }
     foreach ($sd in $subdirs) {
         $script:did++
         $dirId = "Dir$($script:did)"
         $dirName = Esc (Split-Path -Leaf $sd.FullName)
-        [void]$sb.AppendLine("$indent<Directory Id=`"$dirId`" Name=`"$dirName`">")
-        Write-Dir $sd.FullName $dirId ($level + 1)
-        [void]$sb.AppendLine("$indent</Directory>")
+        [void]$sb.AppendLine("$indent  <Directory Id=`"$dirId`" Name=`"$dirName`">")
+        Write-Dir $sd.FullName ($level + 1)
+        [void]$sb.AppendLine("$indent  </Directory>")
     }
 }
 
-Write-Dir $sourceFull "INSTALLFOLDER" 0
+Write-Dir $sourceFull 0
+[void]$sb.AppendLine('    </DirectoryRef>')
+[void]$sb.AppendLine('    <ComponentGroup Id="AppFiles">')
+foreach ($r in $script:refs) { [void]$sb.AppendLine("      <ComponentRef Id=`"$r`" />") }
 [void]$sb.AppendLine('    </ComponentGroup>')
 [void]$sb.AppendLine('  </Fragment>')
 [void]$sb.AppendLine('</Wix>')
