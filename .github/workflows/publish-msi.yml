@@ -1,0 +1,39 @@
+name: Publish Files MSI to Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download MSI artifact (internal)
+      uses: actions/download-artifact@v4
+      with:
+        name: Files-MSI-x64
+        run-id: 44911388862
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        path: msi
+
+    - name: Prepare
+      run: |
+        echo "=== files ==="
+        find msi -type f -printf '%f %s bytes\n'
+        mkdir -p release
+        find msi -type f -iname '*.msi' -exec cp {} release/ \;
+
+    - name: Create release and upload MSI
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v4.3-msi
+        name: 'Files v4.3 MSI installer (self-built x64)'
+        body: |
+          Files v4.3 converted to a traditional MSI installer via WiX (built from the self-built MSIX).
+          Installs to Program Files\Files with Start menu and Desktop shortcuts.
+          NOTE: Files is a WinUI 3 app that normally requires MSIX package identity. This MSI may not run correctly without the Windows App Runtime installed. Install Microsoft.WindowsAppRuntime.2.msix first if the app fails to launch.
+        files: release/*
+        generate_release_notes: false
